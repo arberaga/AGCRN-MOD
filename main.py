@@ -26,6 +26,21 @@ from torch_geometric.utils import remove_self_loops, add_self_loops, get_laplaci
 from torch_geometric.utils import to_dense_adj
 from torch_scatter import scatter_add
 
+def mean_squared_error(y_true, y_pred):
+    """
+    Calculate the mean squared error between true target values and predicted values.
+
+    Parameters:
+    y_true (array-like): True target values.
+    y_pred (array-like): Predicted values.
+
+    Returns:
+    float: Mean squared error.
+    """
+    squared_errors = (y_true - y_pred) ** 2
+    mse = np.mean(squared_errors)
+    return mse
+
 def search_data(sequence_length, num_of_depend, label_start_idx,num_for_predict, units, points_per_hour):
     '''
     Parameters
@@ -90,13 +105,11 @@ def get_sample_indices(data_sequence, num_of_hours, label_start_idx, num_for_pre
 def read_and_generate_dataset(graph_signal_matrix_filename, num_of_hours, num_for_predict, points_per_hour=12):
     '''
     Parameters
-    ----------
     graph_signal_matrix_filename: str, path of graph signal matrix file
     num_of_hours: int
     num_for_predict: int
     points_per_hour: int, default 12, depends on data
     Returns
-    ----------
     feature: np.ndarray, shape is (num_of_samples, num_of_depend * points_per_hour, num_of_vertices, num_of_features)
     target: np.ndarray, shape is (num_of_samples, num_of_vertices, num_for_predict)
     '''
@@ -191,13 +204,13 @@ def get_adjacency_matrix(distance_df_filename, num_of_vertices, id_filename=None
         return A, distaneA
 
 def main():
-    data = np.load('data\PEMS04\PEMS04.npz')
+    data = np.load('./data/PeMS04/PEMS04.npz')
     print(data['data'].shape)
     points_per_hour = 12
     num_for_predict = 12
     num_of_hours = 1
 
-    training_set, validation_set, testing_set = read_and_generate_dataset('data\PEMS04\PEMS04.npz', num_of_hours, 
+    training_set, validation_set, testing_set = read_and_generate_dataset('./data/PeMS04/PEMS04.npz', num_of_hours, 
                                                                         num_for_predict, points_per_hour=points_per_hour)
     train_x = np.concatenate(training_set[:-2], axis=-1)  # (B,N,F,T')
     val_x = np.concatenate(validation_set[:-2], axis=-1)
@@ -244,18 +257,44 @@ def main():
     print('val:', val_x_tensor.size(), val_target_tensor.size())
     print('test:', test_x_tensor.size(), test_target_tensor.size())
 
-    adj_filename = './data/PEMS04/PEMS04.csv'
+    adj_filename = './data/PeMS04/PEMS04.csv'
     num_of_vertices = 307
     adj_mx, distance_mx = get_adjacency_matrix(adj_filename, num_of_vertices, None) #  adj_mx and distance_mx (307, 307)
 
     rows, cols = np.where(adj_mx == 1)
     edges = zip(rows.tolist(), cols.tolist())
-    print(rows.tolist())
-    gr = nx.Graph()
-    gr.add_edges_from(edges)
-    nx.draw(gr, node_size=3)
-    plt.show()
-    rows, cols = np.where(adj_mx == 1)
-    edges = zip(rows.tolist(), cols.tolist())
-    edge_index_data = torch.LongTensor(np.array([rows, cols])).to(DEVICE)
+
+    # gr = nx.Graph()
+    # gr.add_edges_from(edges)
+    # nx.draw(gr, node_size=3)
+    # plt.show()
+    # rows, cols = np.where(adj_mx == 1)
+    # edges = zip(rows.tolist(), cols.tolist())
+    # edge_index_data = torch.LongTensor(np.array([rows, cols])).to(DEVICE)
+
+    mae_predictions = 0
+    rmse_predictions = 0
+    mape_predictions = 0
+    torch.nan_to_num(test_target_tensor, nan=1)
+    for i in range(1,test_target_tensor.shape[0]):
+        # Select one time frame in the past for prediction
+        predicted_data = test_target_tensor[i-1]
+        current_data = test_target_tensor[i]
+        # Make predictions
+        mae_prediction = torch.sum(abs(current_data-predicted_data))
+        mae_predictions += mae_prediction
+
+        rmse_prediction = torch.sum((current_data-predicted_data)**2)
+        rmse_predictions += rmse_prediction
+        
+        mape_prediction = torch.sum(abs((current_data-predicted_data)/current_data))
+        mape_predictions += mape_prediction
+        print(mape_prediction)
+
+    # Calculate the mean squared error (MSE) of the predictions
+    print(mape_predictions)
+    print(mae_predictions/test_target_tensor.shape[0])
+    print(math.sqrt(rmse_predictions/test_target_tensor.shape[0]))
+    print(mape_predictions/test_target_tensor.shape[0])
+
 main()
